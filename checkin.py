@@ -1106,6 +1106,8 @@ class Config:
 
     ENV_PUSH_KEY = "PUSHDEER_SENDKEY"
     ENV_SERVERCHAN_KEY = "SERVERCHAN_SENDKEY"
+    ENV_GOTIFY_URL = "GOTIFY_URL"
+    ENV_GOTIFY_TOKEN = "GOTIFY_TOKEN"
     ENV_COOKIES = "GLADOS_COOKIES"
     ENV_EXCHANGE_PLAN = "GLADOS_EXCHANGE_PLAN"
     ENV_VERBOSE = "GLADOS_VERBOSE"
@@ -1117,6 +1119,8 @@ class Config:
         self.env = env if env is not None else os.environ
         self.push_key = ""
         self.serverchan_key = ""
+        self.gotify_url = ""
+        self.gotify_token = ""
         self.accounts = Accounts()
         self.exchange_plan = self.DEFAULT_EXCHANGE_PLAN
         self.verbose = self.DEFAULT_VERBOSE
@@ -1144,6 +1148,7 @@ class Config:
         for account in self.accounts:
             logger.info(f"{LogEmoji.INFO} {LogEmoji.COOKIE}[{account.label}] {LogEmoji.DOMAIN}[{account.origin or '待探测'}] UA={'自定义' if account.user_agent else '默认'}")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_PUSH_KEY} {'已设置' if self.push_key else '未设置'}，" f"{self.ENV_SERVERCHAN_KEY} {'已设置' if self.serverchan_key else '未设置'}。")
+        logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_GOTIFY_URL} {'已设置' if self.gotify_url else '未设置'}，" f"{self.ENV_GOTIFY_TOKEN} {'已设置' if self.gotify_token else '未设置'}。")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_EXCHANGE_PLAN}: {self.exchange_plan}。")
         logger.info(f"{LogEmoji.INFO} 当前 {self.ENV_VERBOSE}: {self.verbose}。")
 
@@ -1156,6 +1161,18 @@ class Config:
             setattr(self, key, value)
             if not value:
                 logger.warning(f"{LogEmoji.WARNING} 环境变量 '{env_name}' 未设置。")
+
+        # Gotify 需要同时提供地址和 Token；地址去掉末尾斜杠，避免拼出 //message
+        self.gotify_url = self._get(self.ENV_GOTIFY_URL).rstrip("/")
+        self.gotify_token = self._get(self.ENV_GOTIFY_TOKEN)
+        if self.gotify_url or self.gotify_token:
+            if not (self.gotify_url and self.gotify_token):
+                logger.warning(f"{LogEmoji.WARNING} 环境变量 '{self.ENV_GOTIFY_URL}' 和 '{self.ENV_GOTIFY_TOKEN}' 必须同时设置才启用 Gotify 通知。")
+            else:
+                parsed = urlsplit(self.gotify_url)
+                if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                    logger.error(f"{LogEmoji.ERROR} 环境变量 '{self.ENV_GOTIFY_URL}' 不是有效的 http(s) 地址，Gotify 通知将被跳过。")
+                    self.gotify_url = ""
 
     def _load_accounts(self) -> None:
         raw = self._get(self.ENV_COOKIES)
@@ -1311,6 +1328,40 @@ class ServerChanBackend(PushBackend):
             return False
 
 
+class GotifyBackend(PushBackend):
+    """Gotify 后端（自建推送服务）"""
+
+    name = "Gotify"
+
+    def __init__(self, url: str, token: str, timeout: float = 10.0):
+        self.url = url.rstrip("/")
+        self.token = token
+        self.timeout = timeout
+
+    def _render(self, report: Report) -> str:
+        # Gotify 客户端支持 Markdown，行尾两空格 + \n 保证硬换行
+        return report.render("  \n")
+
+    def send(self, report: Report) -> bool:
+        try:
+            resp = requests.post(
+                f"{self.url}/message",
+                params={"token": self.token},
+                json={
+                    "title": report.title,
+                    "message": self._render(report),
+                    "priority": 5,
+                    "extras": {"client::display": {"contentType": "text/markdown"}},
+                },
+                timeout=self.timeout,
+            )
+            resp.raise_for_status()
+            return True
+        except Exception as e:  # noqa: BLE001 - 推送失败不应影响主流程
+            logger.error(f"{LogEmoji.ERROR} [{self.name}] 推送失败: {e}")
+            return False
+
+
 class PushService:
     """聚合多个推送后端，向全部已配置的后端发送（都发）"""
 
@@ -1322,11 +1373,13 @@ class PushService:
             self.backends.append(PushDeerBackend(config.push_key))
         if config.serverchan_key:
             self.backends.append(ServerChanBackend(config.serverchan_key))
+        if config.gotify_url and config.gotify_token:
+            self.backends.append(GotifyBackend(config.gotify_url, config.gotify_token))
 
     def send(self, report: Report) -> bool:
         """向所有已配置后端发送，任一成功即视为成功"""
         if not self.backends:
-            logger.warning(f"{LogEmoji.WARNING} 未配置推送密钥，跳过。")
+            logger.warning(f"{LogEmoji.WARNING} 未配置推送渠道，跳过。")
             return False
 
         names = "、".join(b.name for b in self.backends)

@@ -20,6 +20,9 @@
 > [!NOTE]
 > 非官方项目，与 GLaDOS 官方无关，仅供学习与交流使用。
 
+> [!TIP]
+> 当前分支 `feature/gotify-notify` 在上游基础上新增了 **Gotify** 推送渠道，通过 `GOTIFY_URL` 和 `GOTIFY_TOKEN` 配置，详见[消息推送](#消息推送)。
+
 ## 🚀快速开始
 
 > [!TIP]
@@ -37,6 +40,8 @@
 | `GLADOS_COOKIES` | **是** | 账号列表，固定 JSON 数组，见[账号配置](#配置-glados_cookies) |
 | `PUSHDEER_SENDKEY` | 否 | PushDeer 推送，见[消息推送](#消息推送) |
 | `SERVERCHAN_SENDKEY` | 否 | Server酱 推送，见[消息推送](#消息推送) |
+| `GOTIFY_URL` | 否 | Gotify 服务根地址，需与 `GOTIFY_TOKEN` 同时配置 |
+| `GOTIFY_TOKEN` | 否 | Gotify 应用 Token，见[消息推送](#消息推送) |
 | `GLADOS_EXCHANGE_PLAN` | 否 | `plan100` / `plan200` / `plan500`，见[积分兑换](#积分兑换) |
 | `GLADOS_VERBOSE` | 否 | `true` / `1` / `yes` 输出详细日志 |
 
@@ -155,8 +160,16 @@ Chrome 不允许扩展写入自己的安装目录，所以首次更新需要你�
 | --- | --- | --- |
 | PushDeer | `PUSHDEER_SENDKEY` | [pushdeer.com](https://www.pushdeer.com/product.html) 下载 App，在 App 内获取 pushkey |
 | Server酱 | `SERVERCHAN_SENDKEY` | [sct.ftqq.com](https://sct.ftqq.com/) 微信扫码登录，在页面获取 SendKey |
+| Gotify（本分支新增） | `GOTIFY_URL` + `GOTIFY_TOKEN` | 自建 Gotify 服务 → `APPLICATIONS` → `CREATE APPLICATION`，复制生成的 Token |
 
-两个可单独或同时配置（都发，任一成功即视为成功）；都不配则跳过推送，不影响签到。
+三个渠道可单独或同时配置（都发，任一成功即视为成功）；都不配则跳过推送，不影响签到。
+
+### Gotify 配置说明
+
+1. `GOTIFY_URL` 填服务**根地址**，例如 `https://gotify.example.com`，不要带 `/message` 或末尾斜杠。
+2. `GOTIFY_TOKEN` 填在 Gotify 网页创建应用后得到的 Token（形如 `CxJ...`）。
+3. 两个 Secret 必须**同时设置**才会启用；只填一个会在日志里告警并跳过。
+4. 推送以 Markdown 格式发送，优先级为 5（普通通知）。
 
 ### 推送效果
 
